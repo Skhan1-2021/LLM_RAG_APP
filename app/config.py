@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     embedding_model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
     retrieval_k: int = 4
 
-    llm_provider: str = "openai"  # openai | ollama
+    llm_provider: str = "ollama"  # openai | ollama
     openai_api_key: str | None = None
     openai_model: str = "gpt-4o-mini"
 

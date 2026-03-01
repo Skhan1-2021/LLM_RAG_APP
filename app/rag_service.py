@@ -8,8 +8,7 @@ from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunct
 from openai import OpenAI
 
 from app.config import settings
-from app.text_utils import split_text
-
+from app.text_utils import chunk_id, split_text
 
 
 class RAGService:
@@ -26,7 +25,7 @@ class RAGService:
 
     def ingest(self, text: str, source: str) -> int:
         chunks = split_text(text)
-        ids = [f"{source}-{idx}" for idx, _ in enumerate(chunks)]
+        ids = [chunk_id(source=source, idx=idx, chunk=chunk) for idx, chunk in enumerate(chunks)]
         metadatas = [{"source": source, "chunk": idx} for idx in range(len(chunks))]
         self.collection.upsert(ids=ids, documents=chunks, metadatas=metadatas)
         return len(chunks)
@@ -36,6 +35,24 @@ class RAGService:
         results = self.collection.query(query_texts=[question], n_results=n_results)
         documents = results.get("documents", [[]])[0]
         return [doc for doc in documents if doc]
+
+    def answer(self, question: str, top_k: int | None = None) -> tuple[str, list[str]]:
+        context = self.retrieve(question=question, k=top_k)
+        if not context:
+            return "I do not know based on the indexed knowledge base.", []
+
+        prompt = self._build_prompt(question, context)
+        provider = settings.llm_provider.lower()
+
+        if provider == "ollama":
+            answer = self._generate_ollama(prompt)
+        elif provider == "openai":
+            answer = self._generate_openai(prompt)
+        else:
+            raise RuntimeError("Unsupported LLM_PROVIDER. Use 'openai' or 'ollama'.")
+
+        return answer.strip(), context
+
 
     def _build_prompt(self, question: str, context_chunks: Iterable[str]) -> str:
         context = "\n\n".join(context_chunks)
@@ -73,13 +90,5 @@ class RAGService:
         data = response.json()
         return data.get("response", "No answer generated.")
 
-    def answer(self, question: str) -> tuple[str, list[str]]:
-        context = self.retrieve(question)
-        prompt = self._build_prompt(question, context)
-
-        if settings.llm_provider.lower() == "ollama":
-            answer = self._generate_ollama(prompt)
-        else:
-            answer = self._generate_openai(prompt)
-
-        return answer.strip(), context
+    def stats(self) -> dict[str, int]:
+        return {"documents": self.collection.count()}
